@@ -1,0 +1,67 @@
+# Configuration for the spatialLIBD DLPFC Visium pipeline.
+# All paths are relative to the repo root unless absolute.
+
+project:
+  name: spatial-transcriptomics-human-brain
+  random_seed: 0
+
+data:
+  # Titular dataset: spatialLIBD DLPFC. Default section 151673.
+  sample_id: "151673"
+
+  # Where downloaded / prepared data lives (git-ignored).
+  data_dir: "data"
+
+  # Pre-existing local 10x data on this machine. The loader will auto-detect a
+  # Space Ranger output dir or a *.h5 filtered matrix under here.
+  # (Visium HD colon / lung / mouse sections were staged here during dev.)
+  local_data_dir: "F:/Latch_Bio_Data"
+
+  # Guaranteed-runnable 10x-hosted fallback section (human brain Visium).
+  # Used only if the DLPFC data cannot be located/downloaded.
+  visium_sge_fallback: "V1_Human_Brain_Section_2"
+
+  # Explicit path to a Space Ranger dir or .h5 to load directly.
+  # If set, this overrides sample_id / fallback resolution.
+  # A ready-to-run 10x Visium human brain section is staged here
+  # (filtered_feature_bc_matrix.h5 + spatial/). Set to null to use the
+  # spatialLIBD DLPFC download route instead.
+  explicit_path: "F:/Latch_Bio_Data/dlpfc_visium"
+
+qc:
+  min_genes: 200        # drop spots with fewer detected genes
+  min_cells: 3          # drop genes seen in fewer spots
+  max_pct_mt: 20.0      # drop spots above this mitochondrial fraction
+  mt_prefix: "MT-"      # human mitochondrial gene prefix
+
+normalize:
+  target_sum: 10000     # counts per spot after normalize_total (1e4)
+  n_top_genes: 2000     # highly variable genes
+  hvg_flavor: "seurat"  # 'seurat' works on log data; 'seurat_v3' on raw counts
+  n_pcs: 50
+  n_neighbors: 15
+
+cluster:
+  resolution: 0.8       # Leiden resolution
+  key_added: "leiden"
+
+svg:
+  n_svgs: 20            # number of top spatially variable genes to plot
+  coord_type: "grid"    # Visium hex grid for squidpy spatial_neighbors
+  n_neighs: 6           # 6 neighbors for Visium hexagonal layout
+  run_spatialde: true   # SpatialDE can be slow / memory heavy on many spots
+
+deconv:
+  enabled: false                       # opt-in; heavy, GPU recommended
+  reference_h5ad: "data/dlpfc_snrna_reference.h5ad"
+  cell_type_key: "cell_type"           # .obs column with cell-type labels
+  batch_key: null                      # optional batch/donor key in reference
+  # cell2location hyperparameters (tutorial defaults)
+  n_cells_per_location: 8              # expected cells per Visium spot (brain ~ small)
+  detection_alpha: 20.0
+  ref_max_epochs: 250
+  map_max_epochs: 30000
+
+paths:
+  results_dir: "results"
+  figures_dir: "results/figures"

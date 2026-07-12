@@ -1,0 +1,41 @@
+# Data & results — never commit large files
+data/
+results/
+!results/.gitkeep
+!results/README.md
+*.h5ad
+*.h5
+*.loom
+*.mtx
+*.mtx.gz
+*.tar
+*.tar.gz
+*.zip
+
+# spatialLIBD / spaceranger outputs
+spatial/
+filtered_feature_bc_matrix/
+raw_feature_bc_matrix/
+
+# cell2location / scvi trained models
+models/
+*.pt
+*.ckpt
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+env/
+.ipynb_checkpoints/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
