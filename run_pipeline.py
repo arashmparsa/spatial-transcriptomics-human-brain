@@ -67,7 +67,7 @@ def _ensure_loaded(adata: AnnData | None, cfg: dict, prefer: str | None) -> AnnD
     # Fall back to loading raw data from the resolved source.
     source = io_utils.resolve_data_source(cfg)
     print(f"[pipeline] loading dataset from: {source}")
-    return io_utils.load_visium(source)
+    return io_utils.attach_layer_annotations(io_utils.load_visium(source), cfg)
 
 
 def run(cfg: dict, steps: list[str]) -> None:
@@ -81,6 +81,7 @@ def run(cfg: dict, steps: list[str]) -> None:
         source = io_utils.resolve_data_source(cfg)
         print(f"[pipeline] loading dataset from: {source}")
         adata = io_utils.load_visium(source)
+        adata = io_utils.attach_layer_annotations(adata, cfg)
         print(f"[pipeline] loaded {adata.n_obs} spots x {adata.n_vars} genes")
 
     if "qc" in steps:

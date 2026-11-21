@@ -3,7 +3,7 @@
 Written as a jupytext-style ``# %%`` script (open in Jupyter/VS Code as a
 notebook, or run top-to-bottom with ``python notebooks/01_walkthrough.py``).
 It exercises the same modules as ``run_pipeline.py`` on whatever dataset
-``config.yaml`` resolves to (spatialLIBD DLPFC, a local F: section, or the 10x
+``config.yaml`` resolves to (spatialLIBD DLPFC by default, or the 10x
 fallback).
 """
 

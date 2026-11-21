@@ -1,33 +1,21 @@
-# Core spatial / single-cell stack
-scanpy>=1.9,<1.11
-anndata>=0.9,<0.11
-squidpy>=1.2,<1.5
-SpatialDE>=1.1.3
-
-# Clustering backends for Leiden
+# Core spatial / single-cell stack (versions used for the reported results:
+# Python 3.14, scanpy 1.12.2, squidpy 1.8.3, anndata 0.13.2, numpy 2.4.6,
+# scikit-learn 1.9.0, leidenalg 0.12.0)
+scanpy>=1.9
+anndata>=0.9
+squidpy>=1.2
 leidenalg>=0.9
 python-igraph>=0.10
-
-# Deconvolution (cell2location pulls in scvi-tools / pyro / torch)
-cell2location>=0.1.3
-scvi-tools>=0.20,<1.1
-
-# Scientific Python
-# NOTE: the scvi-tools / cell2location stack can break against the NumPy 2.x
-# ABI. If you see "numpy.dtype size changed" / binary-incompatibility errors,
-# pin numpy<2 :  pip install "numpy<2"
-numpy>=1.23,<2
+numpy>=1.23
 scipy>=1.9
 scikit-learn>=1.1
 pandas>=1.5
-
-# Plotting
 matplotlib>=3.6
 seaborn>=0.12
-
-# Config / IO
 pyyaml>=6.0
 tqdm>=4.64
 
-# Notebooks (optional)
-jupyter>=1.0
+# Optional, NOT used for the reported results:
+#   SpatialDE>=1.1.3                       (svg.run_spatialde: true)
+#   cell2location>=0.1.3, scvi-tools       (deconv step; needs a snRNA-seq
+#                                           reference; numpy<2 may be required)

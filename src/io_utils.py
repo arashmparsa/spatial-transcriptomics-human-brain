@@ -97,7 +97,7 @@ def resolve_data_source(cfg: dict) -> str:
     if _looks_like_spaceranger_dir(sample_dir):
         return str(sample_dir)
 
-    # Auto-detect pre-existing local 10x data (e.g. F:/Latch_Bio_Data).
+    # Auto-detect pre-existing local 10x data under an optional local_data_dir.
     local = data.get("local_data_dir")
     if local:
         found = find_local_10x(local)
@@ -112,7 +112,6 @@ def find_local_10x(root: str) -> str | None:
     """Search ``root`` for a Space Ranger directory or filtered ``.h5`` matrix.
 
     Returns the first match (Space Ranger dir preferred), else ``None``.
-    Used to pick up already-downloaded 10x data under ``F:/Latch_Bio_Data``.
     """
     root_path = Path(root)
     if not root_path.exists():
@@ -130,3 +129,25 @@ def find_local_10x(root: str) -> str | None:
         return str(h5)
 
     return None
+
+
+def attach_layer_annotations(adata: AnnData, cfg: dict) -> AnnData:
+    """Add manual spatialLIBD cortical-layer labels as ``adata.obs['layer']``.
+
+    Reads ``data_dir/<sample_id>/layer_annotations.tsv`` (written by
+    ``scripts/download_data.py``). Spots without an annotation get NaN.
+    No-op if the file is absent.
+    """
+    import pandas as pd
+
+    path = Path(cfg["data"]["data_dir"]) / str(cfg["data"]["sample_id"]) / "layer_annotations.tsv"
+    if not path.exists():
+        return adata
+    ann = pd.read_csv(path, sep="	", index_col="barcode")
+    adata.obs["layer"] = pd.Categorical(
+        adata.obs_names.map(ann["layer"]),
+        categories=["L1", "L2", "L3", "L4", "L5", "L6", "WM"],
+    )
+    n = int(adata.obs["layer"].notna().sum())
+    print(f"[io] attached layer annotations for {n}/{adata.n_obs} spots")
+    return adata

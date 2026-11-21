@@ -1,208 +1,178 @@
 # Spatial Transcriptomics Analysis of Human Brain Tissue
 
-An end-to-end 10x Visium analysis of human dorsolateral prefrontal cortex
-(**spatialLIBD** DLPFC): QC, normalization, and dimensionality reduction with
-**Scanpy** and **Squidpy**; spatially variable genes via **Moran's I** and
-**SpatialDE**; unsupervised clustering to delineate cortical-layer expression
-domains validated against histology; and a **cell2location** deconvolution
-pipeline estimating cell-type proportions per spot from a paired scRNA-seq
-reference.
+A 10x Visium analysis of human dorsolateral prefrontal cortex (DLPFC) from the
+public **spatialLIBD** release (Maynard et al. 2021): QC, normalization, Leiden
+clustering, spatially variable genes (Squidpy Moran's I), and a measured
+comparison of the unsupervised clusters against the manually annotated cortical
+layers (L1-L6, white matter).
 
-**Stack:** Scanpy · Squidpy · cell2location · SpatialDE · 10x Visium · scRNA-seq
-**Author:** Arash Mehrabi Parsa · **Year:** 2025–26
+**Stack:** Scanpy · Squidpy · scikit-learn · 10x Visium
+**Author:** Arash Mehrabi Parsa
 
----
-
-## Why this project
-
-The human neocortex is organized into six laminar layers (L1–L6) plus white
-matter. Maynard et al. (2021) profiled this laminar architecture across DLPFC
-sections with 10x Visium and released the data as the `spatialLIBD` resource.
-This repository reproduces the standard spatial-transcriptomics workflow on that
-data and layers on cell-type deconvolution, giving a compact but complete
-demonstration of the modern spatial-omics toolchain.
-
-The pipeline is written to the official Scanpy / Squidpy / SpatialDE /
-cell2location tutorial idioms so that every step is real and runnable. No results
-are fabricated — you run the code to produce the figures and tables.
-
----
-
-## Pipeline
-
-```mermaid
-flowchart TD
-    A[10x Visium DLPFC section<br/>spatialLIBD sample 151673] --> B[Load: sc.read_visium / spatialLIBD]
-    B --> C[QC: pct_counts_mt, n_genes_by_counts,<br/>total_counts + filtering]
-    C --> D[Normalize: normalize_total + log1p<br/>HVGs, scale, PCA, neighbors, UMAP]
-    D --> E[Leiden clustering<br/>-> annotate cortical layers]
-    D --> F[Spatially variable genes]
-    F --> F1[Squidpy Moran's I<br/>sq.gr.spatial_autocorr]
-    F --> F2[SpatialDE]
-    E --> G[Spatial domain plots vs histology]
-    D --> H[cell2location deconvolution]
-    I[Paired snRNA-seq DLPFC reference] --> H
-    H --> J[Per-spot cell-type proportions<br/>+ spatial abundance maps]
-```
+Every number below was produced by running this repository's code on CPU
+(`python run_pipeline.py --steps load qc normalize cluster svg`). The tables are
+committed under `results/` and the figures under `results/figures/`.
 
 ---
 
 ## Data
 
-### Titular dataset — spatialLIBD DLPFC (10x Visium)
+**spatialLIBD DLPFC, section 151673** (donor Br8100), 10x Visium, Maynard et al.
+2021, *Nat Neurosci*. `scripts/download_data.py` fetches:
 
-The named dataset for this project is the **spatialLIBD** human DLPFC resource
-from Maynard et al. (2021), which contains 12 Visium sections across 3 donors
-with manually annotated cortical layers. The default sample used here is
-**`151673`**. See `scripts/download_data.py` for retrieval routes.
+| File | Source |
+|------|--------|
+| `filtered_feature_bc_matrix.h5` | public spatialLIBD S3 bucket (`spatial-dlpfc`) |
+| `spatial/tissue_hires_image.png` | public spatialLIBD S3 bucket |
+| `spatial/tissue_lowres_image.png`, `tissue_positions_list`, `scalefactors_json.json` | `LieberInstitute/HumanPilot` GitHub repo, `10X/151673/` |
+| `layer_annotations.tsv` (manual layer label per spot) | `LieberInstitute/HumanPilot`, `10X/barcode_level_layer_map.tsv` |
 
-Because programmatic access to the spatialLIBD raw Space Ranger outputs can be
-intermittent (it is primarily distributed as a Bioconductor/`SpatialExperiment`
-object), the download script also supports a **guaranteed-runnable fallback**:
-`sc.datasets.visium_sge("V1_Human_Brain_Section_1")`, a 10x-hosted human brain
-Visium section. This lets the full pipeline run end-to-end even if the exact
-DLPFC section is not on disk. The comments in the script are explicit about which
-dataset is which.
-
-### Using local data under `F:/Latch_Bio_Data`
-
-If you already have 10x data on disk (this project was developed alongside Visium
-HD colon / lung / mouse datasets under `F:/Latch_Bio_Data`), the loader in
-`src/io_utils.py` and `scripts/download_data.py` will detect and load a Space
-Ranger output directory (via `sc.read_visium`) or a filtered feature-barcode
-matrix (`*.h5` via `sc.read_10x_h5`). Point `LOCAL_DATA_DIR` in `config.yaml` at
-your folder. Note that Visium HD / non-brain sections are useful for exercising
-the QC + clustering + SVG steps, but the cortical-layer annotation and the DLPFC
-deconvolution reference only make biological sense on the DLPFC data.
-
-### scRNA-seq / snRNA-seq reference for deconvolution
-
-`cell2location` needs a single-cell reference with cell-type labels to build
-signatures. A suitable paired resource is a human DLPFC / prefrontal cortex
-snRNA-seq atlas (for example the Allen Brain Map human MTG/DLPFC data, or the
-snRNA-seq accompanying spatialLIBD follow-ups). Provide it as an `.h5ad` with a
-`cell_type` column in `.obs` and set its path in `config.yaml`
-(`reference_h5ad`). See `src/deconvolution.py` for the expected schema.
-
-### Data is NOT stored in git
-
-Raw matrices, `.h5ad`/`.h5` objects, and all results are excluded via
-`.gitignore`. Nothing large is committed. Download or point at local data before
-running.
+Downloads go to `data/151673/`, which is git-ignored. About 20 MB in total.
 
 ---
 
-## Install
+## Results (section 151673)
 
-### Option A — conda (recommended)
+### QC
 
-```bash
-conda env create -f environment.yml
-conda activate spatial-brain
-```
+| | Spots | Genes |
+|---|---|---|
+| Raw (in-tissue, Space Ranger filtered) | 3,639 | 33,538 |
+| After QC | **3,633** | **19,151** |
 
-### Option B — pip / venv
+Filters: at least 200 detected genes per spot, mitochondrial fraction below 30%,
+genes detected in at least 3 spots. The mitochondrial cutoff was set from the
+measured distribution, not from clustering scores: the median spot in this
+section has 16.7% mitochondrial reads (75th percentile 19.4%), and the common
+20% cutoff removed 741 of 3,639 spots, mostly from L1-L3. 3,611 spots carry a
+manual layer label; 3,605 of those pass QC and are used for scoring.
+
+Normalization: `normalize_total` (10,000 counts) + `log1p`, 2,000 highly
+variable genes (Seurat flavor), scaling, 50 PCs, 15-neighbor graph, UMAP.
+
+### Clusters vs. manual cortical layers
+
+Leiden on the expression neighbor graph (no spatial smoothing), scored on the
+3,605 annotated spots that pass QC:
+
+| Leiden resolution | Clusters | ARI | NMI |
+|---|---|---|---|
+| 0.2 | 2 | 0.137 | 0.315 |
+| 0.3 | 2 | 0.140 | 0.310 |
+| 0.4 | 2 | 0.142 | 0.309 |
+| 0.5 | 3 | 0.158 | 0.270 |
+| 0.6 | 3 | 0.150 | 0.258 |
+| **0.8 (default)** | **7** | **0.206** | **0.302** |
+| 1.0 | 8 | 0.225 | 0.310 |
+
+Source: `results/ari_vs_layers.csv`. Cluster-by-layer spot counts:
+`results/cluster_vs_layer_counts.csv`.
+
+What the counts show at resolution 0.8: white matter is recovered well (cluster
+2 holds 510 of the 513 annotated WM spots that pass QC, plus 229 L6 spots).
+The grey-matter layers are not separated cleanly: clusters 0, 1, 3 and 4 each
+span three or more layers. This is the expected weakness of expression-only
+clustering on Visium; spatially aware methods (BayesSpace, SpaGCN, GraphST and
+others) are built to close this gap and are not run here.
+
+The marker-score heuristic in `src/cluster.py` (`putative_layer`) labels
+clusters only as L3, L4 or WM on this section and calls cluster 1 (mostly L5/L6
+spots) "WM". It is a weak heuristic and is reported in
+`results/cluster_layer_annotation.csv` only for transparency; the manual
+annotation is the reference.
+
+### Marker check by manual layer
+
+Mean log1p(CP10k) expression per annotated layer (`results/marker_by_layer.csv`):
+
+| Layer | MOBP | PCP4 | SNAP25 |
+|---|---|---|---|
+| L1 | 0.240 | 0.380 | 2.604 |
+| L2 | 0.285 | 0.742 | 3.134 |
+| L3 | 0.291 | 0.712 | 3.282 |
+| L4 | 0.444 | 0.882 | 3.410 |
+| L5 | 0.512 | **1.464** | **3.535** |
+| L6 | 1.057 | 0.509 | 3.180 |
+| WM | **2.647** | 0.205 | 2.136 |
+
+- **MOBP** (myelin, oligodendrocytes) peaks in WM, 2.5x the L6 value and about
+  10x L1-L3.
+- **PCP4** peaks in L5, as expected for deep-layer pyramidal neurons.
+- **SNAP25** (pan-neuronal) is highest across L2-L6 grey matter and lowest in WM.
+
+All three match the expected laminar pattern.
+
+### Spatially variable genes (Squidpy Moran's I)
+
+Moran's I on the 2,000 HVGs with a 6-neighbor Visium grid graph and 100
+permutations (`results/moran_svgs.csv`): 553 genes have normal-approximation
+BH-FDR < 0.05. Top 10 by Moran's I: MT-CO1 (0.711), SCGB2A2 (0.703), PLP1
+(0.698), MOBP (0.645), GFAP (0.623), TF (0.591), CNP (0.570), CRYAB (0.556),
+MAG (0.546), PPP1R14A (0.531). Most of the top genes are oligodendrocyte or
+myelin genes (PLP1, MOBP, TF, CNP, MAG), which trace the white-matter boundary.
+PCP4, the L5 marker, has Moran's I 0.297.
+
+### Figures
+
+| Figure | File |
+|---|---|
+| Leiden clusters, heuristic layer, and manual layers on the tissue | `results/figures/spatial_clusters.png` |
+| UMAP colored by the same three labels | `results/figures/umap_clusters.png` |
+| MOBP / PCP4 / SNAP25 on the tissue | `results/figures/marker_spatial.png` |
+| Layer marker dot plot by manual layer | `results/figures/marker_dotplot_by_layer.png` |
+| Top 6 Moran's I SVGs on the tissue | `results/figures/moran_top_svgs.png` |
+| QC distributions | `results/figures/qc_violin.png`, `results/figures/qc_scatter.png` |
+
+![Spatial clusters vs manual layers](results/figures/spatial_clusters.png)
+![Marker genes](results/figures/marker_spatial.png)
+![Top spatially variable genes](results/figures/moran_top_svgs.png)
+
+### Not run
+
+- **SpatialDE** is implemented in `src/spatial_genes.py` but disabled in
+  `config.yaml` (`svg.run_spatialde: false`) and was not run.
+- **cell2location deconvolution** (`src/deconvolution.py`) needs a labeled
+  snRNA-seq reference and was not run. No deconvolution results are reported.
+- Only one section (151673) was analyzed.
+
+---
+
+## Reproduce
 
 ```bash
 python -m venv .venv
 source .venv/bin/activate      # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
-```
 
-> **NumPy note:** parts of the `scvi-tools` / `cell2location` stack are sensitive
-> to the NumPy 2.x ABI break. If you hit binary-incompatibility errors, pin
-> `numpy<2` (see `requirements.txt`). The QC/clustering/SVG steps work under
-> either NumPy line; deconvolution is the fussy one.
-
-### Option C — Docker
-
-```bash
-docker build -t spatial-brain .
-docker run --rm -it -v "$PWD":/work spatial-brain bash
-```
-
----
-
-## Usage
-
-Everything is driven by `config.yaml` and `run_pipeline.py`. You can run the
-whole thing or individual steps.
-
-```bash
-# 0. fetch data (spatialLIBD DLPFC, 10x fallback, or detect local F: data)
-python scripts/download_data.py
-
-# full pipeline (deconvolution is opt-in because it is heavy)
+python scripts/download_data.py              # -> data/151673/
 python run_pipeline.py --steps load qc normalize cluster svg
-
-# individual steps
-python run_pipeline.py --steps qc
-python run_pipeline.py --steps cluster --resolution 1.0
-python run_pipeline.py --steps svg
-python run_pipeline.py --steps deconv        # needs a reference .h5ad + GPU ideally
 ```
 
-Or via `make`:
+Runs on CPU in a few minutes; the Moran's I permutation test is the slowest
+step. Another spatialLIBD section can be fetched with
+`python scripts/download_data.py --sample 151507` and selected with
+`data.sample_id` in `config.yaml`.
 
-```bash
-make setup      # create env
-make download   # fetch/detect data
-make qc
-make cluster
-make svg
-make deconv
-make all
-```
-
-Each step reads the AnnData written by the previous step from `results/`, so
-steps are resumable.
-
----
-
-## Outputs
-
-Written under `results/` (git-ignored):
-
-| Step        | Artifacts |
-|-------------|-----------|
-| `qc`        | `results/adata_qc.h5ad`, violin + scatter QC plots in `results/figures/` |
-| `normalize` | `results/adata_norm.h5ad` (HVGs, PCA, neighbors, UMAP) |
-| `cluster`   | `results/adata_clustered.h5ad`, UMAP + spatial Leiden plots, cluster→layer annotation table |
-| `svg`       | `results/moran_svgs.csv`, `results/spatialde_svgs.csv`, top-SVG spatial plots |
-| `deconv`    | `results/cell_type_proportions.csv`, per-spot abundance spatial maps, trained model dirs |
-
-See `results/README.md` for the full manifest.
+`environment.yml` and `Dockerfile` are provided but were not used for the
+reported run (see `requirements.txt` for the versions that were).
 
 ---
 
 ## Repository layout
 
 ```
-spatial-transcriptomics-human-brain/
-├── README.md
-├── requirements.txt
-├── environment.yml
-├── Dockerfile
-├── .gitignore
-├── LICENSE
-├── config.yaml
-├── Makefile
-├── scripts/
-│   └── download_data.py
+├── config.yaml              # all parameters
+├── run_pipeline.py          # step runner (load, qc, normalize, cluster, svg, deconv)
+├── scripts/download_data.py # fetch spatialLIBD section + layer labels
 ├── src/
-│   ├── __init__.py
-│   ├── io_utils.py
+│   ├── io_utils.py          # Visium loading + layer-label attachment
 │   ├── qc.py
 │   ├── normalize.py
-│   ├── cluster.py
-│   ├── spatial_genes.py
-│   └── deconvolution.py
-├── run_pipeline.py
-├── notebooks/
-│   └── 01_walkthrough.py
-└── results/
-    ├── .gitkeep
-    └── README.md
+│   ├── cluster.py           # Leiden, ARI/NMI vs layers, marker check
+│   ├── spatial_genes.py     # Moran's I (+ optional SpatialDE)
+│   └── deconvolution.py     # cell2location (not run)
+├── notebooks/01_walkthrough.py
+└── results/                 # committed CSV tables + figures/ (AnnData objects ignored)
 ```
 
 ---
@@ -211,19 +181,15 @@ spatial-transcriptomics-human-brain/
 
 - Maynard KR, Collado-Torres L, Weber LM, et al. *Transcriptome-scale spatial
   gene expression in the human dorsolateral prefrontal cortex.* Nat Neurosci
-  24, 425–436 (2021). https://doi.org/10.1038/s41593-020-00787-0 — spatialLIBD DLPFC.
-- Kleshchevnikov V, Shmatko A, Dann E, et al. *Cell2location maps fine-grained
-  cell types in spatial transcriptomics.* Nat Biotechnol 40, 661–671 (2022).
-  https://doi.org/10.1038/s41587-021-01139-4
+  24, 425-436 (2021). https://doi.org/10.1038/s41593-020-00787-0
 - Palla G, Spitzer H, Klein M, et al. *Squidpy: a scalable framework for spatial
-  omics analysis.* Nat Methods 19, 171–178 (2022).
+  omics analysis.* Nat Methods 19, 171-178 (2022).
   https://doi.org/10.1038/s41592-021-01358-2
-- Svensson V, Teichmann SA, Stegle O. *SpatialDE: identification of spatially
-  variable genes.* Nat Methods 15, 343–346 (2018).
-  https://doi.org/10.1038/nmeth.4636
 - Wolf FA, Angerer P, Theis FJ. *SCANPY: large-scale single-cell gene expression
   data analysis.* Genome Biol 19, 15 (2018).
+- Traag VA, Waltman L, van Eck NJ. *From Louvain to Leiden: guaranteeing
+  well-connected communities.* Sci Rep 9, 5233 (2019).
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+MIT, see [LICENSE](LICENSE).

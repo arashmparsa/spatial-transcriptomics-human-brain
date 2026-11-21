@@ -1,98 +1,80 @@
-"""Fetch / locate a Visium dataset for the pipeline.
+"""Download the spatialLIBD human DLPFC Visium section used by this pipeline.
 
-Resolution strategy (honest about what's what):
+Source: Maynard et al. (2021), Nat Neurosci, https://doi.org/10.1038/s41593-020-00787-0
+(the ``spatialLIBD`` / LieberInstitute HumanPilot release).
 
-* **Titular dataset — spatialLIBD DLPFC (Maynard et al. 2021).** This is the
-  dataset the project is named for. Its Space Ranger outputs are primarily
-  distributed as a Bioconductor ``SpatialExperiment`` object, so a plain
-  programmatic download of the raw matrices is not always available. If you have
-  the Space Ranger output for a section (e.g. sample ``151673``) place it under
-  ``data/<sample_id>/`` and this script will detect it.
+Files fetched for one section (default ``151673``) into ``data/<sample_id>/``
+(``data/`` is git-ignored):
 
-* **Local pre-existing 10x data.** If ``local_data_dir`` (e.g.
-  ``F:/Latch_Bio_Data``) contains a Space Ranger directory or a filtered
-  feature-barcode ``.h5``, it is detected and used. This lets already-downloaded
-  Visium HD colon / lung / mouse sections drive the QC / clustering / SVG steps.
+* ``filtered_feature_bc_matrix.h5``      - Space Ranger counts (public S3 bucket)
+* ``spatial/tissue_hires_image.png``     - H&E image, hires (public S3 bucket)
+* ``spatial/tissue_lowres_image.png``    - H&E image, lowres (HumanPilot GitHub)
+* ``spatial/tissue_positions_list.csv``  - spot barcodes -> array/pixel coords
+* ``spatial/scalefactors_json.json``     - image scale factors
+* ``layer_annotations.tsv``              - manual cortical layer labels (L1-L6, WM)
+                                           for this section, from
+                                           ``10X/barcode_level_layer_map.tsv``
 
-* **Guaranteed-runnable fallback.** Otherwise download a 10x-hosted human brain
-  Visium section via ``sc.datasets.visium_sge`` so the full pipeline runs
-  end-to-end out of the box. This is a different section from the DLPFC data and
-  is used only as a fallback.
+Usage::
 
-Nothing large is committed to git (see ``.gitignore``).
+    python scripts/download_data.py                 # sample 151673
+    python scripts/download_data.py --sample 151507
 """
 
 from __future__ import annotations
 
 import argparse
-import sys
+import urllib.request
 from pathlib import Path
 
-import yaml
-
-# Allow running as a plain script (python scripts/download_data.py).
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from src.io_utils import find_local_10x  # noqa: E402
+S3 = "https://spatial-dlpfc.s3.us-east-2.amazonaws.com"
+GH = "https://raw.githubusercontent.com/LieberInstitute/HumanPilot/master/10X"
 
 
-SPATIALLIBD_NOTE = """\
-spatialLIBD DLPFC (the titular dataset) is distributed via Bioconductor:
-    - R: BiocManager::install('spatialLIBD'); spe <- spatialLIBD::fetch_data('spe')
-    - or download per-sample Space Ranger outputs and place them at
-      data/<sample_id>/ (containing spatial/ and filtered_feature_bc_matrix.h5).
-See Maynard et al. 2021, Nat Neurosci; https://doi.org/10.1038/s41593-020-00787-0
-"""
+def _fetch(url: str, dest: Path) -> None:
+    if dest.exists() and dest.stat().st_size > 0:
+        print(f"[download] exists, skipping: {dest}")
+        return
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    print(f"[download] {url}")
+    tmp = dest.with_suffix(dest.suffix + ".part")
+    urllib.request.urlretrieve(url, tmp)
+    tmp.replace(dest)
 
 
-def load_config(path: str) -> dict:
-    with open(path, "r", encoding="utf-8") as fh:
-        return yaml.safe_load(fh)
+def download(sample: str, data_dir: Path) -> Path:
+    out = data_dir / sample
+    spatial = out / "spatial"
+    _fetch(f"{S3}/h5/{sample}_filtered_feature_bc_matrix.h5",
+           out / "filtered_feature_bc_matrix.h5")
+    _fetch(f"{S3}/images/{sample}_tissue_hires_image.png",
+           spatial / "tissue_hires_image.png")
+    _fetch(f"{GH}/{sample}/tissue_lowres_image.png",
+           spatial / "tissue_lowres_image.png")
+    _fetch(f"{GH}/{sample}/tissue_positions_list.txt",
+           spatial / "tissue_positions_list.csv")
+    _fetch(f"{GH}/{sample}/scalefactors_json.json",
+           spatial / "scalefactors_json.json")
+
+    # Layer annotations: keep only this section's rows.
+    layer_out = out / "layer_annotations.tsv"
+    if not layer_out.exists():
+        all_map = data_dir / "barcode_level_layer_map.tsv"
+        _fetch(f"{GH}/barcode_level_layer_map.tsv", all_map)
+        rows = [ln for ln in all_map.read_text().splitlines()
+                if ln.split("\t")[1] == sample]
+        layer_out.write_text("barcode\tsample\tlayer\n" + "\n".join(rows) + "\n")
+        print(f"[download] wrote {len(rows)} annotated spots -> {layer_out}")
+    return out
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Fetch/locate Visium data.")
-    parser.add_argument("--config", default="config.yaml")
-    parser.add_argument(
-        "--force-fallback",
-        action="store_true",
-        help="Skip local detection and download the 10x visium_sge fallback.",
-    )
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument("--sample", default="151673")
+    parser.add_argument("--data-dir", default="data")
     args = parser.parse_args()
-
-    cfg = load_config(args.config)
-    data = cfg["data"]
-    data_dir = Path(data["data_dir"])
-    data_dir.mkdir(parents=True, exist_ok=True)
-
-    sample_id = str(data["sample_id"])
-    sample_dir = data_dir / sample_id
-
-    # 1. spatialLIBD DLPFC section already staged under data/<sample_id>/ ?
-    if not args.force_fallback and (sample_dir / "spatial").is_dir():
-        print(f"[download] found spatialLIBD DLPFC sample at: {sample_dir}")
-        return
-
-    # 2. Pre-existing local 10x data (e.g. F:/Latch_Bio_Data) ?
-    local = data.get("local_data_dir")
-    if not args.force_fallback and local:
-        found = find_local_10x(local)
-        if found:
-            print(f"[download] detected local 10x data: {found}")
-            print("[download] set data.explicit_path in config.yaml to pin it.")
-            return
-
-    # 3. Guaranteed-runnable 10x-hosted fallback section.
-    print(SPATIALLIBD_NOTE)
-    fallback = data["visium_sge_fallback"]
-    print(f"[download] no DLPFC/local data found; downloading 10x fallback: {fallback}")
-    import scanpy as sc
-
-    adata = sc.datasets.visium_sge(sample_id=fallback)
-    adata.var_names_make_unique()
-    out = data_dir / f"{fallback}.h5ad"
-    adata.write_h5ad(out)
-    print(f"[download] wrote fallback dataset -> {out} "
-          f"({adata.n_obs} spots x {adata.n_vars} genes)")
+    out = download(args.sample, Path(args.data_dir))
+    print(f"[download] done: {out}")
 
 
 if __name__ == "__main__":

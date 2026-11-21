@@ -1,8 +1,7 @@
 # Data & results — never commit large files
 data/
-results/
-!results/.gitkeep
-!results/README.md
+# results/: small CSV tables + PNG figures are committed; AnnData objects are not
+results/*.h5ad
 *.h5ad
 *.h5
 *.loom

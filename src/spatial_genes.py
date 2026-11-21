@@ -47,6 +47,7 @@ def moran_svgs(adata: AnnData, coord_type: str = "grid", n_neighs: int = 6,
         genes=genes,
         n_perms=n_perms,
         seed=seed,
+        n_jobs=4,
     )
     moran = adata.uns["moranI"].sort_values("I", ascending=False)
     return moran
@@ -87,16 +88,17 @@ def spatialde_svgs(adata: AnnData) -> pd.DataFrame:
 
 
 def plot_top_svgs(adata: AnnData, genes: list[str], figures_dir: str,
-                  prefix: str = "moran") -> None:
-    """Plot the top SVGs in tissue space (best-effort)."""
+                  prefix: str = "moran", n_plot: int = 6) -> None:
+    """Plot the top ``n_plot`` SVGs in tissue space (best-effort)."""
     fig_dir = Path(figures_dir)
     fig_dir.mkdir(parents=True, exist_ok=True)
     genes = [g for g in genes if g in (adata.raw.var_names if adata.raw else adata.var_names)]
+    genes = genes[:n_plot]
     if not genes:
         return
     try:
-        sc.pl.spatial(adata, color=genes, show=False, use_raw=True)
-        plt.savefig(fig_dir / f"{prefix}_top_svgs.png", dpi=150, bbox_inches="tight")
+        sc.pl.spatial(adata, color=genes, show=False, use_raw=True, ncols=3)
+        plt.savefig(fig_dir / f"{prefix}_top_svgs.png", dpi=110, bbox_inches="tight")
         plt.close()
     except Exception as exc:  # noqa: BLE001 - plotting is best-effort
         print(f"[svg] spatial SVG plot skipped: {exc}")

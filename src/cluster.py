@@ -86,6 +86,8 @@ def plot_clusters(adata: AnnData, figures_dir: str, cluster_key: str = "leiden")
     color = [cluster_key]
     if "putative_layer" in adata.obs:
         color.append("putative_layer")
+    if "layer" in adata.obs:
+        color.append("layer")  # manual spatialLIBD annotation
     fig = sc.pl.umap(adata, color=color, wspace=0.4, show=False, return_fig=True)
     fig.savefig(fig_dir / "umap_clusters.png", dpi=150, bbox_inches="tight")
     plt.close(fig)
@@ -93,7 +95,7 @@ def plot_clusters(adata: AnnData, figures_dir: str, cluster_key: str = "leiden")
     # Spatial (in-tissue) cluster map — only if spatial coords + image present.
     if "spatial" in adata.obsm:
         try:
-            sc.pl.spatial(adata, color=color, show=False)
+            sc.pl.spatial(adata, color=color, show=False, wspace=0.3)
             plt.savefig(fig_dir / "spatial_clusters.png", dpi=150, bbox_inches="tight")
             plt.close()
         except Exception as exc:  # noqa: BLE001 - plotting is best-effort
@@ -114,4 +116,86 @@ def run_clustering(adata: AnnData, cfg: dict) -> tuple[AnnData, pd.DataFrame]:
     )
     layer_table = annotate_layers(adata, cluster_key=ccfg["key_added"])
     plot_clusters(adata, figures_dir, cluster_key=ccfg["key_added"])
+
+    if "layer" in adata.obs:
+        results_dir = Path(cfg["paths"]["results_dir"])
+        sweep = ari_sweep(adata, ccfg.get("ari_sweep", []), ccfg["resolution"], seed)
+        sweep.to_csv(results_dir / "ari_vs_layers.csv", index=False)
+        pd.crosstab(adata.obs[ccfg["key_added"]], adata.obs["layer"]).to_csv(
+            results_dir / "cluster_vs_layer_counts.csv")
+        print(sweep.to_string(index=False))
+        markers = marker_check(adata, figures_dir)
+        markers.to_csv(results_dir / "marker_by_layer.csv")
+        print(markers.round(3).to_string())
     return adata, layer_table
+
+
+# --------------------------------------------------------------------------
+# Evaluation against manual cortical-layer annotation (spatialLIBD DLPFC)
+# --------------------------------------------------------------------------
+
+def score_against_layers(adata: AnnData, cluster_key: str) -> dict:
+    """ARI / NMI between ``cluster_key`` and manual ``obs['layer']``.
+
+    Only spots with a manual annotation are scored.
+    """
+    from sklearn.metrics import adjusted_rand_score, normalized_mutual_info_score
+
+    mask = adata.obs["layer"].notna().values
+    truth = adata.obs["layer"].astype(str).values[mask]
+    pred = adata.obs[cluster_key].astype(str).values[mask]
+    return {
+        "n_scored_spots": int(mask.sum()),
+        "n_clusters": int(adata.obs[cluster_key].nunique()),
+        "ARI": float(adjusted_rand_score(truth, pred)),
+        "NMI": float(normalized_mutual_info_score(truth, pred)),
+    }
+
+
+def ari_sweep(adata: AnnData, resolutions: list[float], main_resolution: float,
+              seed: int = 0) -> pd.DataFrame:
+    """Score Leiden at several resolutions against the manual layers."""
+    rows = []
+    for res in sorted(set(list(resolutions) + [main_resolution])):
+        key = f"leiden_r{res}"
+        sc.tl.leiden(adata, resolution=res, key_added=key, random_state=seed)
+        row = {"method": "leiden", "resolution": res, **score_against_layers(adata, key)}
+        rows.append(row)
+    return pd.DataFrame(rows)
+
+
+# Canonical markers with the compartment where each is expected to peak.
+CHECK_MARKERS: dict[str, str] = {
+    "MOBP": "WM",     # oligodendrocyte myelin gene -> white matter
+    "PCP4": "L5",     # deep-layer (L5) neurons
+    "SNAP25": "L1-L6 (neuronal grey matter, low in WM)",
+}
+
+
+def marker_check(adata: AnnData, figures_dir: str) -> pd.DataFrame:
+    """Mean log-normalized expression of check markers per manual layer.
+
+    Writes a spatial panel of the markers and a layer x marker dot plot.
+    Returns a layer x gene table of mean log1p(CP10k) expression.
+    """
+    fig_dir = Path(figures_dir)
+    genes = [g for g in CHECK_MARKERS if g in adata.raw.var_names]
+    annotated = adata[adata.obs["layer"].notna()]
+    expr = annotated.raw[:, genes].X
+    expr = expr.toarray() if hasattr(expr, "toarray") else expr
+    table = (
+        pd.DataFrame(expr, index=annotated.obs_names, columns=genes)
+        .groupby(annotated.obs["layer"].values, observed=True).mean()
+    )
+    table.index.name = "layer"
+
+    if "spatial" in adata.obsm:
+        sc.pl.spatial(adata, color=genes, use_raw=True, show=False, ncols=3)
+        plt.savefig(fig_dir / "marker_spatial.png", dpi=150, bbox_inches="tight")
+        plt.close()
+    sc.pl.dotplot(annotated, var_names=list(dict.fromkeys(
+        [g for ms in LAYER_MARKERS.values() for g in ms] + genes)),
+        groupby="layer", use_raw=True, show=False)
+    plt.savefig(fig_dir / "marker_dotplot_by_layer.png", dpi=150, bbox_inches="tight")
+    plt.close()
+    return table

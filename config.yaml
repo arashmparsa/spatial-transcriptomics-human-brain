@@ -12,26 +12,23 @@ data:
   # Where downloaded / prepared data lives (git-ignored).
   data_dir: "data"
 
-  # Pre-existing local 10x data on this machine. The loader will auto-detect a
-  # Space Ranger output dir or a *.h5 filtered matrix under here.
-  # (Visium HD colon / lung / mouse sections were staged here during dev.)
-  local_data_dir: "F:/Latch_Bio_Data"
+  # Optional: a folder of other local 10x data to auto-detect (Space Ranger
+  # dir or *.h5). null = only use data_dir/<sample_id>.
+  local_data_dir: null
 
   # Guaranteed-runnable 10x-hosted fallback section (human brain Visium).
   # Used only if the DLPFC data cannot be located/downloaded.
   visium_sge_fallback: "V1_Human_Brain_Section_2"
 
-  # Explicit path to a Space Ranger dir or .h5 to load directly.
+  # Optional explicit path to a Space Ranger dir or .h5 to load directly.
   # If set, this overrides sample_id / fallback resolution.
-  # A ready-to-run 10x Visium human brain section is staged here
-  # (filtered_feature_bc_matrix.h5 + spatial/). Set to null to use the
-  # spatialLIBD DLPFC download route instead.
-  explicit_path: "F:/Latch_Bio_Data/dlpfc_visium"
+  explicit_path: null
 
 qc:
   min_genes: 200        # drop spots with fewer detected genes
   min_cells: 3          # drop genes seen in fewer spots
-  max_pct_mt: 20.0      # drop spots above this mitochondrial fraction
+  max_pct_mt: 30.0      # drop spots above this mitochondrial fraction (DLPFC 151673 median is 16.7%;
+                        # a 20% cutoff removed 741/3639 spots, mostly from L1-L3)
   mt_prefix: "MT-"      # human mitochondrial gene prefix
 
 normalize:
@@ -44,12 +41,14 @@ normalize:
 cluster:
   resolution: 0.8       # Leiden resolution
   key_added: "leiden"
+  # Extra resolutions to score against the manual layers (ARI/NMI sweep).
+  ari_sweep: [0.2, 0.3, 0.4, 0.5, 0.6, 0.8, 1.0]
 
 svg:
   n_svgs: 20            # number of top spatially variable genes to plot
   coord_type: "grid"    # Visium hex grid for squidpy spatial_neighbors
   n_neighs: 6           # 6 neighbors for Visium hexagonal layout
-  run_spatialde: true   # SpatialDE can be slow / memory heavy on many spots
+  run_spatialde: false  # SpatialDE is optional (pip install SpatialDE); not run for the reported results
 
 deconv:
   enabled: false                       # opt-in; heavy, GPU recommended
